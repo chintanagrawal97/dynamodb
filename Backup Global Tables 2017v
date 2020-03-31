@@ -1,0 +1,33 @@
+1. Take a backup of the global table A.
+
+2. Delete the global table in all the regions.
+
+3. Restore the backup of global table A to a new non-global table B.
+
+4. Create new empty global tables (for example C and D ) in multiple regions
+
+5.Create a Data Pipeline using a template to export data from table B to S3. Please refer to the 
+following documentation : [1]
+
+6.Now before importing the data to the global table, please note the following : 
+When the items are inserted to any of the Global table, service creates three columns "aws:rep:updateregion, aws:rep:updatetime, aws:rep:deleting" in the table which helps to replicate the items to other regions. When we export the DynamoDB table, these three columns would also be exported as expected. Later on, when this backup would be imported, the data would be successfully imported to the base table. However, the items would not be able to replicate to other regions because the columns "aws:rep:updateregion, aws:rep:updatetime, aws:rep:deleting” are present in backup of the first table. When the back up was imported to a new DynamoDB table, service considers these three columns as inserted by the user and thus the Global table settings (which need to create these columns to replicate the items to replica regions) will conflict with the already existing attribute names.
+
+7.In order to mitigate this issue, we can use AWS Glue service to modify the table schema.
+Go to s3 folder(eg., s3://test-bucket/dp/2018-12-11-07-32-22) where DP exported the DDB table and delete the folders : "_SUCCESS" and "manifest”.
+
+8.Using Glue crawler, crawl the s3 folder path (eg., s3://test-bucket/dp/2018-12-11-07-32-22). 
+This will create the schema of the data in Glue Catalog.
+
+9.Using Glue, create an ETL Job using data source as the table created by crawler and data target with Data store=s3, Format=JSON, and Target = new empty s3 folder (eg., s3://test-bucket/backup)
+
+10.Click on Next. Here comes the screen for "Map the source columns to target columns”. On Right-hand side, just click on cross icon [X] for the columns aws:rep:updateregion, aws:rep:updatetime and aws:rep:deleting. Also, verify the name of all attributes(e.g., case-sensitivity) on the target side. If the name of attributes on target side seems to be modified(e.g., case-sensitivity of the attribute names), then modify the attribute name as required for the new DynamoDB table by clicking on the name.
+
+11.Click on Save and Edit Script
+
+12.Save the script using "Save" button present on the upper left side and then Run the job. This will load the data to "s3://test-bucket/backup" in which the global table attributes will be removed
+
+13.Now using Data Pipeline, we can import from folder "s3://test-bucket/backup" to global table C, data will be replicated to D via global tables. [2]
+=========================================================================================================
+
+Make sure to provision enough write capacity on the new table so that no throttling happens while importing the data to a new table. As throttling on a base table could cause replication process stuck to other regions.
+Also, please note that Data Pipeline export/ import jobs for DynamoDB do not support DynamoDB's new On-Demand mode.
